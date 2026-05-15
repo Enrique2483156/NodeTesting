@@ -1,55 +1,86 @@
-require("dotenv").config(); // Para utilizar variables de entorno.
-
-
-
 const express = require("express");
-const app = express();
+const jwt= require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 
+require("dotenv").config();
+
+const app = express();
 
 app.use(express.json());
 
+//simulamos base de datos.
+const usuarios = [];
 
-// Datos de prueba.
-
-let videoJuegos = [
-
-    {id:1,titulo: "call of duty 1",precio: 10.30},
-    {id:2,titulo: "call of duty 2",precio: 14.30},
-    {id:3,titulo: "call of duty 3",precio: 214.30},
-    {id:4,titulo: "call of duty 4",precio: 342.30},
-    {id:5,titulo: "call of duty 5",precio: 546.30},
-    {id:6,titulo: "call of duty 6",precio: 657.30}
-];
-
-app.use(express.static("public"));
-
-/*
-app.get("/",(req, res) => {
-    //return res.json(videoJuegos);
-    //return res.send("Hola este es un cambio");
-
-});
-*/
-
-app.get("/mygames", (req,res) => {
+//REGISTRO
+app.post("/register",async (req,res) => {
+    const {email,password} = req.body;
+    //hash password.
     
-    return res.json([
-        videoJuegos[0],
-        videoJuegos[1]
-    ]);
-
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password,salt);
+    const usuario = {
+        id: Date.now,
+        email,
+        password: hashedPassword
+    };
+    usuarios.push(usuario);
+    res.json({mensaje: "Usuario registrado"});
 });
 
+//Login genera el JWT
 
-const PORT = process.env.PORT || 3001;
+app.post("/login",async (req,res) => {
+    const {email, password} = req.body;
+    const usuario = usuarios.find(u=>u.email === email);
 
+    if (!usuario)
+    {
+        return res.status(400).json({mensaje: "Uusario no existe"});
+    }
 
+    const passwordValida = await bcrypt.compare(password,usuario.password);
 
-app.listen(PORT, () => {
-    console.log("Escuchando desde el server");
+    if (!passwordValida){
+        return res.status(401).json({mensaje: "Password incorrecta"});
+    }
+
+    //generar JWT
+    const token = jwt.sign({id:usuario.id,email:usuario.email},process.env.JWT_SECRET,{expiresIn: "1hr"});
+
+    res.json({token});
 });
 
+//middleware de seguridad
+function authMiddleware(req,res,next){
+    const header  = req.headers.authorization;
+    if (!header){
+        return req.status(401).json({mensaje: "Token requerido"});
+    }
+
+    const token = header.split("")[1]; // bearer token
+
+    try{
+        const decoded = jwt.verify(token,process.env.JWT_SECRET);
+        req.usuario = decoded;
+        next();
+    }catch(error)
+    {
+        return res.status(401).json({mensaje: "token invalido o expirado"});
+    }
+}
 
 
+//ruta protegida
 
+app.get("/perfil",authMiddleware,(req,res) =>{
+    res.json({
+        mensaje: "acceso permitido",
+        usuario: req.usuario
+    });
+});
 
+//Server:
+
+app.listen(3000,()=>{
+    console.log("Servidor en http://localhost:3000");
+});
